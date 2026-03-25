@@ -1,73 +1,123 @@
+"""
+Animated Circle - Basic Version
+Arrow keys to move | Tkinter sidebar for Speed, Size, Color, Trail
+"""
+
 import tkinter as tk
+import matplotlib
+matplotlib.use("TkAgg")
+import matplotlib.pyplot as plt
+import matplotlib.animation as animation
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
-# Keyframes: (x, y) — fixed size
-keyframes = [
-    (150, 200),
-    (350, 100),
-    (550, 200),
-    (400, 320),
-    (200, 320),
-]
+# ── State ──────────────────────────────────────────────────────────────────────
+state = {
+    'x': 0.0, 'y': 0.0,
+    'pressed': set(),
+    'trail_pts': []
+}
 
-RADIUS = 40
-current = 0
-step = 0
-STEPS = 30
-animating = False
-start = keyframes[0]
-end = keyframes[0]
+COLORS = ['blue', 'red', 'green', 'orange', 'purple', 'cyan']
+LIMIT = 0.88
 
-def lerp(a, b, t):
-    return a + (b - a) * t
-
-def draw(x, y):
-    canvas.delete("all")
-    canvas.create_oval(x - RADIUS, y - RADIUS, x + RADIUS, y + RADIUS,
-                       fill="royalblue", outline="")
-    label.config(text=f"Keyframe {current + 1} / {len(keyframes)}")
-
-def animate():
-    global step, animating
-    t = step / STEPS
-    x = lerp(start[0], end[0], t)
-    y = lerp(start[1], end[1], t)
-    draw(int(x), int(y))
-    step += 1
-    if step <= STEPS:
-        root.after(16, animate)
-    else:
-        animating = False
-
-def go(direction):
-    global current, step, animating, start, end
-    if animating:
-        return
-    next_kf = current + direction
-    if 0 <= next_kf < len(keyframes):
-        start = keyframes[current]
-        end = keyframes[next_kf]
-        current = next_kf
-        step = 0
-        animating = True
-        animate()
-
+# ── Window ─────────────────────────────────────────────────────────────────────
 root = tk.Tk()
-root.title("Circle Animation")
+root.title("Animated Circle - Basic")
 
-canvas = tk.Canvas(root, width=700, height=400, bg="#f0f0f0")
-canvas.pack()
+# ── Plot ───────────────────────────────────────────────────────────────────────
+fig, ax = plt.subplots(figsize=(5, 5))
+ax.set_xlim(-1, 1)
+ax.set_ylim(-1, 1)
+ax.set_aspect('equal')
+ax.set_title("Use Arrow Keys to Move")
+ax.grid(True, alpha=0.3)
 
-label = tk.Label(root, text="Keyframe 1 / 5", font=("Arial", 12), pady=5)
-label.pack()
+circle = plt.Circle((0, 0), 0.1, color='blue', zorder=5)
+ax.add_patch(circle)
+trail_line, = ax.plot([], [], '-', color='blue', alpha=0.4, lw=1.5)
+info_text = ax.text(-0.95, -0.95, '', fontsize=8, va='bottom', family='monospace')
 
-btn_frame = tk.Frame(root)
-btn_frame.pack(pady=10)
+canvas = FigureCanvasTkAgg(fig, master=root)
+canvas.get_tk_widget().grid(row=0, column=0, rowspan=20)
 
-tk.Button(btn_frame, text="◀ Prev", command=lambda: go(-1), font=("Arial", 13), padx=16, pady=6).pack(side="left", padx=10)
-tk.Button(btn_frame, text="Next ▶", command=lambda: go(+1), font=("Arial", 13), padx=16, pady=6).pack(side="left", padx=10)
+# ── Sidebar Controls ───────────────────────────────────────────────────────────
 
-root.bind("<Left>",  lambda e: go(-1))
-root.bind("<Right>", lambda e: go(+1))
+# Speed
+tk.Label(root, text="Speed", font=('Arial', 10, 'bold')).grid(row=0, column=1, pady=(15, 0))
+speed_var = tk.DoubleVar(value=0.04)
+tk.Scale(root, from_=0.01, to=0.15, resolution=0.005,
+         variable=speed_var, orient='horizontal', length=150).grid(row=1, column=1, padx=15)
 
-draw(*keyframes[0])
+# Size
+tk.Label(root, text="Size (radius)", font=('Arial', 10, 'bold')).grid(row=2, column=1, pady=(10, 0))
+size_var = tk.DoubleVar(value=0.1)
+tk.Scale(root, from_=0.02, to=0.35, resolution=0.01,
+         variable=size_var, orient='horizontal', length=150).grid(row=3, column=1, padx=15)
+
+# Color
+tk.Label(root, text="Color", font=('Arial', 10, 'bold')).grid(row=4, column=1, pady=(10, 0))
+color_var = tk.StringVar(value='blue')
+color_menu = tk.OptionMenu(root, color_var, *COLORS)
+color_menu.config(width=10)
+color_menu.grid(row=5, column=1, pady=4)
+
+# Trail toggle
+trail_var = tk.BooleanVar(value=True)
+tk.Checkbutton(root, text="Show Trail",
+               variable=trail_var, font=('Arial', 10)).grid(row=6, column=1, pady=8)
+
+# Reset button
+def reset():
+    state['x'] = state['y'] = 0.0
+    state['trail_pts'].clear()
+
+tk.Button(root, text="Reset Position", command=reset,
+          font=('Arial', 10), width=14).grid(row=7, column=1, pady=4)
+
+# Instructions
+tk.Label(root, text="\n↑ ↓ ← →  Move\nSliders update live\nTrail shows path",
+         font=('Arial', 9), justify='left', fg='gray').grid(row=8, column=1, padx=10, pady=10)
+
+# ── Key Bindings ───────────────────────────────────────────────────────────────
+root.bind('<KeyPress>',   lambda e: state['pressed'].add(e.keysym.lower()))
+root.bind('<KeyRelease>', lambda e: state['pressed'].discard(e.keysym.lower()))
+
+# ── Animation Loop ─────────────────────────────────────────────────────────────
+def update(_frame):
+    speed  = speed_var.get()
+    radius = size_var.get()
+    color  = color_var.get()
+    show_trail = trail_var.get()
+
+    lo, hi = -LIMIT, LIMIT
+
+    if 'left'  in state['pressed']: state['x'] = max(lo + radius, state['x'] - speed)
+    if 'right' in state['pressed']: state['x'] = min(hi - radius, state['x'] + speed)
+    if 'up'    in state['pressed']: state['y'] = min(hi - radius, state['y'] + speed)
+    if 'down'  in state['pressed']: state['y'] = max(lo + radius, state['y'] - speed)
+
+    cx, cy = state['x'], state['y']
+
+    circle.center = (cx, cy)
+    circle.set_radius(radius)
+    circle.set_color(color)
+    trail_line.set_color(color)
+
+    if show_trail:
+        state['trail_pts'].append((cx, cy))
+        if len(state['trail_pts']) > 250:
+            state['trail_pts'].pop(0)
+        if len(state['trail_pts']) > 1:
+            xs, ys = zip(*state['trail_pts'])
+            trail_line.set_data(xs, ys)
+    else:
+        state['trail_pts'].clear()
+        trail_line.set_data([], [])
+
+    info_text.set_text(f"X:{cx:+.2f}  Y:{cy:+.2f}  Speed:{speed:.2f}  R:{radius:.2f}")
+    canvas.draw_idle()
+    return circle, trail_line, info_text
+
+ani = animation.FuncAnimation(fig, update, interval=16, cache_frame_data=False)
+
 root.mainloop()
